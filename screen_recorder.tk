@@ -1,0 +1,295 @@
+#!/bin/bash
+# Execute using wish \
+exec wish $0 -- $@
+
+foreach pkg {utilities jdebug cmdline json} {
+    package require $pkg
+}
+unset pkg
+
+# Parse commandline arguments
+
+settemp specs {
+    {d           "Show debugging messages"}
+    {debug       "Show debugging messages"}
+    {writeconfig "Rewrite the config file"}
+}
+settemp argvCopy $argv
+settemp args
+try {
+    set args [cmdline::getoptions argvCopy $specs]
+} trap {CMDLINE USAGE} {msg} {
+    puts stderr $msg
+    exit
+}
+
+if {[dict get $args d] || [dict get $args debug]} jdebug::on
+
+# Start interface
+
+image create photo PreviewImage
+
+wm title . "Screen Recorder"
+wm geometry . 1124x744+0+0
+wm minsize . 1124 744
+wm protocol . WM_DELETE_WINDOW {
+    writeConfigFile
+    exit
+}
+
+source "imagefile.tcl"
+source "grid_mapper.tk"
+source "terminal.tcl"
+source "proc.tcl"
+source "globals.tcl"
+if {[dict get $args writeconfig]} {
+    writeConfigFile 1
+} else {
+    after idle {openConfigFile}
+}
+
+settemp parent .frMain
+
+pack [ttk::frame $parent] -fill both -expand 1
+
+ttk::label .lbStatus -text Status
+
+# Split the window into tabs.
+
+place [ttk::notebook $parent.nb] -relwidth 0.9 -anchor n -relx 0.5
+    .frMain.nb add [ttk::frame $parent.nb.frOptions] -text "Video Recording" -sticky ns
+    .frMain.nb add [ttk::frame $parent.nb.frScreen] -text "Screen Preview" -sticky ns
+
+# TODO: remove this line when the interface is finished
+bind .frMain.nb <3> {puts [wm geometry .]}
+
+# Frames inside "Video Recording" tab
+
+set parent .frMain.nb.frOptions
+
+settemp frame
+foreach frame {frOutput frParams frRecMode frConsole} {
+    pack [ttk::frame $parent.$frame] -side top -fill both -anchor n
+}
+
+# Output file
+
+set parent .frMain.nb.frOptions.frOutput
+
+ttk::label $parent.lbOutputFile -text "Output File"
+
+ttk::entry $parent.enOutputFile -textvariable OUTPUT_FILE -width 50
+set OUTPUT_FILE ""
+
+ttk::button $parent.btBrowseFile -text "Browse..." -command {
+    settemp temp [tk_getSaveFile -initialdir $CurrentDir -parent .]
+
+    if {$temp != ""} {
+        set OUTPUT_FILE $temp
+        set CurrentDir [file dirname $OUTPUT_FILE]
+    }
+}
+
+grid $parent.lbOutputFile -
+grid $parent.enOutputFile $parent.btBrowseFile
+
+# Video Recording Options
+
+set parent .frMain.nb.frOptions.frParams
+
+ttk::label $parent.lbFps -text "Fps"
+ttk::label $parent.lbVCodec -text "Video Codec"
+ttk::label $parent.lbACodec -text "Audio Codec"
+ttk::label $parent.lbASrc -text "Audio Source"
+ttk::label $parent.lbDuration -text "Duration (Seconds)"
+
+ttk::combobox $parent.cbVCodec -textvariable VCODEC \
+    -width 15 -values [concat auto [getCodecsFromFile video 1]]
+ttk::combobox $parent.cbACodec -textvariable ACODEC \
+    -width 15 -values [concat null auto [getCodecsFromFile audio 1]]
+ttk::combobox $parent.cbASrc -textvariable ASRC -width 30 -state readonly
+
+bind $parent.cbACodec <<ComboboxSelected>> [subst -nocommands {
+    settemp value [.frMain.nb.frOptions.frParams.cbACodec get]
+    if {\$value ne "null"} {
+        grid $parent.lbASrc -row 0 -column 3
+        grid $parent.cbASrc -row 1 -column 3
+    } else {
+        grid forget $parent.lbASrc $parent.cbASrc
+    }
+}]
+
+ttk::spinbox $parent.sbFps -width 4 -from 1 -to 60 -increment 1 \
+    -command "set FPS \[$parent.sbFps get]"
+ttk::spinbox $parent.sbDuration -width 4 -from 0 -to 100000 -increment 0.5 \
+    -command "set DURATION \[$parent.sbDuration get]"
+
+# Set the total list of audio sources
+set AudioSources [getAudioSources]
+settemp temp_source ""
+settemp temp_values ""
+foreach temp_source $AudioSources {
+    lappend temp_values [lrange $temp_source 0 1]
+}
+$parent.cbASrc configure -values $temp_values
+$parent.cbASrc current 0
+
+grid $parent.lbFps $parent.lbVCodec $parent.lbACodec x $parent.lbDuration
+grid $parent.sbFps $parent.cbVCodec $parent.cbACodec x $parent.sbDuration
+grid configure $parent.sbDuration -sticky ew
+
+# Show audio sources if audio codec is not null
+after idle [subst {
+    if {\$ACODEC ne "null"} {
+        grid $parent.lbASrc -row 0 -column 3
+        grid $parent.cbASrc -row 1 -column 3
+    }
+}]
+
+# Recording modes
+
+set parent .frMain.nb.frOptions.frRecMode
+
+ttk::radiobutton $parent.rbRecordScreen -variable RECORD_MODE \
+    -value whole_screen -text "Whole Screen" \
+    -command {
+        settemp widget
+        settemp parent .frMain.nb.frOptions.frRecMode
+        foreach widget {enWidth enHeight enXOffset enYOffset btSetRegion} {
+            $parent.$widget state disabled
+        }
+    }
+ttk::radiobutton $parent.rbRecordRegion -variable RECORD_MODE \
+    -value region -text "Region" -command {
+        settemp widget
+        settemp parent .frMain.nb.frOptions.frRecMode
+        foreach widget {enWidth enHeight enXOffset enYOffset btSetRegion} {
+            $parent.$widget state !disabled
+        }
+    }
+
+after idle {.frMain.nb.frOptions.frRecMode.rbRecordScreen invoke}
+
+ttk::label $parent.lbWidth -text Width
+ttk::label $parent.lbHeight -text Height
+ttk::label $parent.lbXOffset -text "X Offset"
+ttk::label $parent.lbYOffset -text "Y Offset"
+
+ttk::entry $parent.enWidth   -width 5 -textvariable WIDTH
+set WIDTH [winfo screenwidth .]
+ttk::entry $parent.enHeight  -width 5 -textvariable HEIGHT
+set HEIGHT [winfo screenheight .]
+ttk::entry $parent.enXOffset -width 5 -textvariable X_OFFSET
+set X_OFFSET 0
+ttk::entry $parent.enYOffset -width 5 -textvariable Y_OFFSET
+set Y_OFFSET 0
+
+ttk::button $parent.btSetRegion -text "Set Region" -command {
+    wm withdraw .
+
+    try {
+        set tempfile [file join $TempFileDir "image[random string 5].png"]
+        eval exec import $tempfile
+
+        set imginfo [split [eval exec identify $tempfile]]
+
+        set size [split [lindex $imginfo 2] x]
+
+        set offset [lindex $imginfo 3]
+        set offset [string range $offset "[string first + $offset]+1" end]
+        set offset [split $offset +]
+
+        ::jdebug::eval {
+            puts "Size: $size\nOffset: $offset"
+        }
+
+        lassign $size WIDTH HEIGHT
+        lassign $offset X_OFFSET Y_OFFSET
+    } finally {
+        file delete $tempfile
+        ::jdebug::print "Deleted $tempfile"
+        unset -nocomplain tempfile imginfo offset size
+    }
+
+    wm deiconify .
+}
+
+ttk::button $parent.btOpenRegion -text "Open..." -command {
+    settemp file [tk_getOpenFile -parent . -title "Save Region to File" -initialdir $RegionFileDir]
+    if {$file ne ""} {
+        set RegionFileDir [file dirname $file]
+        settemp id [open $file r]
+        settemp data [read $id]
+        close $id
+        set data [split $data]
+        if {[llength $data] < 4} {
+            displayError "There is not enough data in the file." \
+            "The file ([file tail $file]) needs to contain at least 4 numbers separated by spaces."
+            return
+        }
+        settemp number
+        settemp var
+        foreach number [lrange $data 0 3] var {X_OFFSET Y_OFFSET WIDTH HEIGHT} {
+            if {[string is digit $number]} {
+                set $var $number
+            }
+        }
+        showStatusMessage "Opened region options from file"
+    }
+}
+
+ttk::button $parent.btSaveRegion -text "Save..." -command {
+    settemp file [tk_getSaveFile -parent . -title "Save Region to File" -initialdir $RegionFileDir]
+    if {$file ne ""} {
+        set RegionFileDir [file dirname $file]
+        settemp id [open $file w]
+        puts $id "$X_OFFSET $Y_OFFSET $WIDTH $HEIGHT"
+        close $id
+        showStatusMessage "Saved region options to file"
+    }
+}
+
+ttk::button $parent.btUpPreview -text "Update Preview" -command {
+    wm withdraw .
+    .frMain.nb select 1
+    loadPreviewImage "${WIDTH}x$HEIGHT+$X_OFFSET+$Y_OFFSET"
+    setPreviewRegion $WIDTH $HEIGHT $X_OFFSET $Y_OFFSET
+    wm deiconify .
+}
+
+ttk::separator $parent.vertSep -orient vertical
+
+grid $parent.rbRecordScreen $parent.vertSep $parent.lbWidth $parent.lbHeight
+grid x ^ $parent.enWidth $parent.enHeight
+grid $parent.rbRecordRegion ^ $parent.lbXOffset $parent.lbYOffset
+#grid x ^ $parent.lbXOffset $parent.lbYOffset
+grid x ^ $parent.enXOffset $parent.enYOffset
+grid x ^ $parent.btSetRegion - -sticky ew
+grid x ^ $parent.btOpenRegion $parent.btSaveRegion -sticky ew
+grid x ^ $parent.btUpPreview - -sticky ew
+grid configure $parent.rbRecordScreen $parent.rbRecordRegion -sticky ew
+grid configure $parent.vertSep -sticky ns
+
+# Record button and console
+
+set parent .frMain.nb.frOptions.frConsole
+
+text $parent.txConsole -background white -wrap word -state disabled
+
+ttk::button $parent.btRecord -text Record -command recordVideo
+
+pack $parent.txConsole $parent.btRecord -side top -fill x -expand 1
+#pack configure $parent.txConsole -fill both
+
+# Screen preview
+
+ttk::label .frMain.nb.frScreen.lbGeometry -text "Geometry: 0x0 / :0.0+0,0"
+ttk::label .frMain.nb.frScreen.lbPreview -image PreviewImage
+
+pack .frMain.nb.frScreen.lbGeometry .frMain.nb.frScreen.lbPreview -fill x
+pack configure .frMain.nb.frScreen.lbPreview -fill both
+
+after idle {
+    showStatusMessage "Interface working normally"
+    loadPreviewImage
+}

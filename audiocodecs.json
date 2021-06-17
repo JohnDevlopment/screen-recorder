@@ -1,0 +1,58 @@
+{
+    "aac": {
+        "description": "AAC (Advanced Audio Coding) (decoders: aac aac_fixed )",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": true
+    },
+    "alac": {
+        "description": "ALAC (Apple Lossless Audio Codec)",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "mp2": {
+        "description": "MP2 (MPEG audio layer 2) (decoders: mp2 mp2float ) (encoders: mp2 mp2fixed libtwolame )",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": true
+    },
+    "mp3": {
+        "description": "MP3 (MPEG audio layer 3) (decoders: mp3 mp3float ) (encoders: libmp3lame libshine )",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": true
+    },
+    "opus": {
+        "description": "Opus (Opus Interactive Audio Codec) (decoders: opus libopus ) (encoders: opus libopus )",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": true
+    },
+    "pcm_u16le": {
+        "description": "PCM unsigned 16-bit little-endian",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "pcm_u32le": {
+        "description": "PCM unsigned 32-bit little-endian",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "vorbis": {
+        "description": "Vorbis (decoders: vorbis libvorbis ) (encoders: vorbis libvorbis )",
+        "type": "audio",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    }
+}

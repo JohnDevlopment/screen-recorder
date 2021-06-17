@@ -1,0 +1,105 @@
+namespace eval GridMapper {
+    namespace export grid
+
+    # Usage: GridMapper::grid <windowList> ?<windowList>?
+    # A helper function for the grid command. Each argument is used to construct a separate
+    # grid command. (See examples.) The grid commands are parsed in the same order as their
+    # corresponding arguments appear in the list.
+    #
+    # If a parameter starts with the bareword "start", the following elements are passed to
+    # grid configure after all the "grid" commands are parsed. These parameters are parsed in the
+    # same order that they appear in the list.
+    #
+    # Parameters:
+    #   windowList = A list of window paths or modifiers
+    #
+    # Return value: Returns an empty string
+    #
+    # Modifiers:
+    #   * @CS - Analogous to grid's column-span modifier: -
+    #   * @CE - Analoguus to grid's column-space modifier: x
+    #   * @RS - Analoguus to grid's row-span modifier: ^
+    #
+    # Examples:
+    #   GridMapper::grid {.path1 .path2 .path3} {.path4 .path5 .path6}
+    #   =>
+    #   grid .path1 .path2 .path3
+    #   grid .path4 .path5 .path6
+    #
+    #   GridMapper::grid {.widePath @CS .anotherPath}
+    #   =>
+    #   grid .widePath - .anotherPath
+    #
+    #   GridMapper::grid {.path1 @CE .path2} {@RS .path3}
+    #   =>
+    #   grid .path1 x .path2
+    #   grid ^ .path3
+    #
+    # Example of using "after":
+    #   GridMapper::grid {.path1 .path2} {after .path2 -column 5} {.path3 .path4} {after .path3 -row 2}
+    #   =>
+    #   grid .path1 .path2
+    #   grid .path3 .path4
+    #   grid configure .path2 -column 5
+    #   grid configure .path3 -row 2
+    proc grid {args} {
+        if {! [llength $args]} {
+            return -code error "wrong # args: should be GridMapper::grid windowList ?windowList?"
+        }
+
+        set commands [list]
+        set aftercommands [list]
+        set backref 1
+        set widgetmap {}
+
+        foreach arg $args {
+            set mappedstring [split [string map {@CS - @CE x @RS ^} $arg]]
+
+            set mappedstring [lmap temp $mappedstring {
+                if {$temp == ""} continue
+                if {[regexp {\.[a-z]+} $temp]} {
+                    lappend widgetmap "\\[pincr backref] $temp"
+                }
+                _ret1 $temp
+            }]
+
+            switch [lindex $mappedstring 0] {
+                after {
+                    set mappedstring [lreplace $mappedstring 0 0]
+                    set mappedstring [concat ::grid configure $mappedstring]
+                        puts "\t$mappedstring\n################"
+                    lappend aftercommands $mappedstring
+                }
+                anchor {
+                    set mappedstring [lreplace $mappedstring 0 0]
+                    set mappedstring [concat ::grid anchor {*}$mappedstring]
+                    lappend aftercommands $mappedstring
+                }
+                default {
+                    lappend commands [linsert $mappedstring 0 ::grid]
+                }
+            }
+        }
+        unset -nocomplain backref arg
+
+        set commands [join $commands "\n"]
+        set widgetmap [join $widgetmap]
+
+        # Map widget references to their respective values.
+        set temp $aftercommands
+        set aftercommands {}
+        foreach temp $temp {
+            append aftercommands "[join $temp]\n"
+        }
+        set aftercommands [string trimright $aftercommands]
+        set aftercommands [string map $widgetmap $aftercommands]
+
+        eval $commands
+        eval $aftercommands
+        puts $aftercommands
+
+        return
+    }
+
+    proc _ret1 v {return $v}
+}

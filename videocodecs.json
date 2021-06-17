@@ -1,0 +1,72 @@
+{
+    "alias_pix": {
+        "description": "Alias/Wavefront PIX image",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "apng": {
+        "description": "APNG (Animated Portable Network Graphics) image",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "ffv1": {
+        "description": "FFmpeg video codec #1",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "ffvhuff": {
+        "description": "Huffyuv FFmpeg variant",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "huffyuv": {
+        "description": "HuffYUV",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "r210": {
+        "description": "Uncompressed RGB 10-bit",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "v210": {
+        "description": "Uncompressed 4:2:2 10-bit",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "v308": {
+        "description": "Uncompressed packed 4:4:4",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "v408": {
+        "description": "Uncompressed packed QT 4:4:4:4",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    },
+    "v410": {
+        "description": "Uncompressed 4:4:4 10-bit",
+        "type": "video",
+        "decoder": true,
+        "encoder": true,
+        "lossy": false
+    }
+}
