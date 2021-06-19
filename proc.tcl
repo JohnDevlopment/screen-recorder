@@ -264,31 +264,6 @@ proc dialog args {
     return $result
 }
 
-proc consoleOut args {
-    set firstArg [lindex $args 0]
-    set args [lreplace $args 0 0]
-    set text [concat $args]
-
-    if {$firstArg ne "-nonewline"} {set text "$firstArg$text\n"}
-
-    .frExport.frConsole.txConsole configure -state normal
-    .frExport.frConsole.txConsole insert end $text
-
-    set lastIndex(list) [split [.frExport.frConsole.txConsole index end] .]
-    set lastIndex(line) [lindex $lastIndex(list) 0]
-    set lastIndex(char) [lindex $lastIndex(list) 1]
-
-    set n [expr "($lastIndex(line) - 500) - 2"]
-    if {$n > 0} {
-        .frExport.frConsole.txConsole delete 1.0 "1.0 + $n lines"
-    }
-
-    .frExport.frConsole.txConsole see end
-    .frExport.frConsole.txConsole configure -state disabled
-
-    return
-}
-
 proc getAudioSources {} {
     set id [file tempfile]
     eval exec pactl list short sources >@ $id
@@ -368,6 +343,8 @@ proc showStatusMessage {msg {timer 5}} {
 proc recordVideo {} {
     global OUTPUT_FILE FPS ACODEC VCODEC WIDTH HEIGHT X_OFFSET Y_OFFSET RECORD_MODE
 
+    jdebug::print trace "Entered function \"recordVideo\""
+
     if {$OUTPUT_FILE eq ""} {
         return [displayError "No output file selected." \
             "Make sure to provide a file name in the field on top."]
@@ -386,17 +363,21 @@ proc recordVideo {} {
 
     set detail [list "FPS: $FPS" "Source: x11grab"]
 
+    jdebug::header "### "
+
     # Region or the whole screen?
     if {$RECORD_MODE eq "region"} {
         set x $X_OFFSET
         set y $Y_OFFSET
         set w $WIDTH
         set h $HEIGHT
+        jdebug::print trace "Record video in region mode\nRegion: ($x,$y) ${w}$h"
     } else {
         set x 0
         set y 0
         set w [winfo screenwidth .]
         set h [winfo screenheight .]
+        jdebug::print trace "Screen resolution: ${w}$h"
     }
 
     lappend detail "Resolution: ${w}x$h" "Input: 0.0"
@@ -407,29 +388,48 @@ proc recordVideo {} {
     # Concatenate the command
 
     set cmd [list ffmpeg -f x11grab -r $FPS -s "${w}x$h" -i ":0.0+$x,$y"]
+    jdebug::print trace "Command with initial parameters: \"$cmd\""
     set codecs [list]
+
+    # Video duration
+    global DURATION
+    if {$DURATION > 0} {
+        set cmd [linsert $cmd 3 -t $DURATION]
+        jdebug::print trace "Added \"-t $DURATION\" to command\nUpdated command: $cmd"
+        lappend detail "Duration: $DURATION seconds"
+    }
 
     # Video codec
     if {$VCODEC ne "auto"} {
         lappend codecs -vcodec $VCODEC
         lappend detail "Video Codec: $VCODEC"
+        jdebug::print trace "Specified video codec: $VCODEC"
     }
 
     # Audio source
     if {$ACODEC ne "null"} {
         set audioInput [.frMain.nb.frOptions.frParams.cbASrc get]
-        set audioInput [regexp -inline {^[0-9]+} $audioInput]
-        lappend cmd -f pulse -i $audioInput
-        lappend detail "Audio Source: pulse"
+        lappend cmd -f pulse -i [regexp -inline {^[0-9]+} $audioInput]
+        jdebug::print trace
+
+        set audioInput [lindex [regexp -inline {[0-9]+(.+)} $audioInput] 1]
+        lappend detail "Audio Source: pulse" "Audio Input: $audioInput"
 
         # Audio codec
         if {$ACODEC ne "auto"} {
             lappend codecs -acodec $ACODEC
             lappend detail "Audio Codec: $ACODEC"
         }
+
+        # Audio duration
+        if {$DURATION > 0} {
+            set cmd [linsert $cmd end-2 -t $DURATION]
+        }
     }
 
     lappend cmd {*}$codecs $OUTPUT_FILE
+
+    jdebug::header ""
 
     # Confirmation dialog
     set detail [join $detail "\n"]
@@ -446,12 +446,10 @@ proc recordVideo {} {
     set x [expr "round($w / 2 + $x)"]
     set y [expr "round($h / 2 + $y)"]
 
-    jdebug::print "Command: $cmd"
-
     # Attempt to execute the FFMpeg commandline in a terminal
     try {
         wm withdraw .
-        terminal::parseCommand -geometry "80x30+$x+$y" -- echo $cmd
+        terminal::parseCommand -geometry "80x30+$x+$y" -- $cmd
     } on error errmsg {
         displayError $errmsg
     } finally {
@@ -459,7 +457,7 @@ proc recordVideo {} {
     }
 }
 
-proc getGloballyUniqueName {} {
+proc _getGloballyUniqueName {} {
     global GUID
     if {! [info exists GUID]} {set GUID 1}
     return "guid$GUID"
@@ -467,10 +465,13 @@ proc getGloballyUniqueName {} {
 
 proc getCodecsFromFile {which {onlyKeys 0}} {
     upvar #0 "CodecDict($which)" Codecs
+    global ConfigDir
+
+    set file [file join $ConfigDir "${which}codecs.json"]
 
     if {! [info exists Codecs]} {
-        ::jdebug::print "Reading from \"${which}codecs.json\""
-        set Codecs [readJsonFromFile "${which}codecs.json"]
+        jdebug::print debug "Reading from \"$file\""
+        set Codecs [readJsonFromFile $file]
     }
 
     if {$onlyKeys} {
@@ -512,9 +513,9 @@ proc openConfigFile {} {
 
     set configFile [file join $ConfigDir config.tcl]
 
-    ::jdebug::print "Config directory: $ConfigDir"
+    jdebug::print debug "Config directory: $ConfigDir"
     if {! [file exists $configFile]} {
-        ::jdebug::print "Creating new config file: $configFile"
+        jdebug::print debug "Creating new config file: $configFile"
         writeConfigFile 1
         return
     }
@@ -527,11 +528,14 @@ proc writeConfigFile {{init 0}} {
 
     set configFile [file join $ConfigDir config.tcl]
 
+    # Directory doesn't exist
     if {! [file isdirectory $ConfigDir]} {
         file mkdir $ConfigDir
-        ::jdebug::print "Created directory: $ConfigDir"
+        jdebug::print debug "Created directory: $ConfigDir"
     }
 
+    # Each element in $ConfigFields is a list, with 1. the name of a global variable,
+    # and 2. the variable's default value when not set by the config file.
     set data ""
     foreach field $ConfigFields {
         set var [lindex $field 0]
@@ -540,7 +544,7 @@ proc writeConfigFile {{init 0}} {
         # Initialize and/or get the value of the global variable
         if {$init} {
             set value [subst [lindex $field 1]]
-            ::jdebug::print "Initialize $var to \"$value\""
+            jdebug::print trace "Initialize $var to \"$value\""
             set $var $value
         } else {
             set value [deref $var]
@@ -554,11 +558,16 @@ proc writeConfigFile {{init 0}} {
         append data "\nset $var $value"
     }
 
+    # Some additional stuff that could not be included above
     if {$init} {
+        # This is otherwise done in openConfigFile: setup FPS and DURATION to
+        # modify the value of their respective spinbox window.
         trace add variable FPS write spinboxVariableSetter
         set FPS $FPS
         trace add variable DURATION write spinboxVariableSetter
         set DURATION $DURATION
+
+        # Append the initial geometry of the window
         append data "\nwm geometry . 1124x744+0+0"
     } else {
         append data "\nwm geometry . [wm geometry .]"
@@ -569,7 +578,7 @@ proc writeConfigFile {{init 0}} {
     puts $id [string trimleft $data]
     close $id
 
-    ::jdebug::print \
+    jdebug::print trace \
         "Wrote configuration file: $configFile\ndata:\n###############$data\n###############"
 }
 
@@ -587,7 +596,7 @@ proc captureScreen {} {
     # temp.png PNG 1920x1080 1920x1080+0+0
     set imginfo [lrange [split $imginfo] 0 3]
 
-    ::jdebug::eval {
+    jdebug::eval {
         puts "Image Info:"
         foreach name {File Format Size Geometry} value $imginfo {
             puts "\t$name: $value"
@@ -613,7 +622,7 @@ proc loadPreviewImage {{crop ""}} {
         setPreviewRegion [winfo screenwidth .] [winfo screenheight .] 0 0
     } finally {
         file delete $imgfile
-        ::jdebug::print "Deleted $imgfile"
+        jdebug::print trace "Deleted $imgfile"
     }
 }
 
@@ -632,6 +641,7 @@ proc getTempDir {} {
     set id [file tempfile tempname]
     close $id
     file delete -force $tempname
+    after idle {rename getTempDir ""}
     return [file dirname $tempname]
 }
 

@@ -63,7 +63,13 @@ proc ::terminal::_execCommand {args} {
     }
 
     # Evaluate command
-    eval exec $term $opts -x bash $file
+    set code ok
+    set errorcode ""
+    try {
+        set result [eval exec $term $opts -x bash $file]
+    } trap CHILDSTATUS {result errorcode} {
+        set code error
+    }
 
     # Loop until the file no longer exists
     while {[file exists $file]} {after 1000}
@@ -74,6 +80,8 @@ proc ::terminal::_execCommand {args} {
     if {[string length $options(callback)] > 0} {
         uplevel $options(callback)
     }
+
+    return -code $code -errorcode $errorcode $result
 }
 
 proc ::terminal::_makeScript {cmd} {

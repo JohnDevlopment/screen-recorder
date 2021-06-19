@@ -2,17 +2,70 @@
 # Execute using wish \
 exec wish $0 -- $@
 
+proc copySourceFiles {dir1 dir2 args} {
+    # Invalid time values
+    #if {! [regexp {[0-9]+} $mtimeSrc]} {
+    #    return -code error "invalid time argument \"$mtimeSrc\""
+    #}
+    #if {! [regexp {[0-9]+} $mtimeDst]} {
+    #    return -code error "invalid time argument \"$mtimeDst\""
+    #}
+
+    set mtimeOrZero [lambda {file} {
+        if {[file exists $file]} {
+            return [file mtime $file]
+        }
+        return 0
+    }]
+
+    # Invalid directories
+    if {! [file isdir $dir1]} {
+        return -code error \
+            "invalid directory \"$dir1\", it does not exist or is not a readable directory"
+    }
+    if {! [file isdir $dir2]} {
+        return -code error \
+            "invalid directory \"$dir2\", it does not exist or is not a readable directory"
+    }
+
+    foreach file $args {
+        set srcFile [file join $dir1 $file]
+        set dstFile [file join $dir2 $file]
+        set mtimeSrc [file mtime $srcFile]
+        set mtimeDst [eval $mtimeOrZero $dstFile]
+
+        jdebug::print trace "Checking $file...\nModified on [clock format $mtimeDst]"
+
+        # Source files are newer than the destination files
+        if {$mtimeSrc > $mtimeDst} {
+            file copy -force $srcFile $dstFile
+            jdebug::print trace "Copied $srcFile to \"$dir2\""
+        }
+    }
+
+    # Delete the procedure
+    after idle {
+        rename copySourceFiles ""
+        jdebug::print trace "Deleted command copySourceFiles"
+    }
+}
+
+# Load packages
 foreach pkg {utilities jdebug cmdline json} {
     package require $pkg
 }
 unset pkg
 
+const ConfigDir [file nativename "$env(HOME)/.config/screen_recorder"]
+
 # Parse commandline arguments
 
 settemp specs {
-    {d           "Show debugging messages"}
-    {debug       "Show debugging messages"}
-    {writeconfig "Rewrite the config file"}
+    {d                  "Show debugging messages"}
+    {debug              "Show debugging messages"}
+    {writeconfig        "Rewrite the config file"}
+    {install            "Copy the source files to the config directory"}
+    {loglevel.arg info  "Specify the logging level (only matters if -d or -debug are passed)"}
 }
 settemp argvCopy $argv
 settemp args
@@ -24,6 +77,13 @@ try {
 }
 
 if {[dict get $args d] || [dict get $args debug]} jdebug::on
+
+# Rewrite the configuration file if the -writeconfig switch is present
+if {[dict get $args writeconfig]} {
+    writeConfigFile 1
+}
+
+jdebug::level [dict get $args loglevel]
 
 # Start interface
 
@@ -37,16 +97,12 @@ wm protocol . WM_DELETE_WINDOW {
     exit
 }
 
-source "imagefile.tcl"
-source "grid_mapper.tk"
-source "terminal.tcl"
-source "proc.tcl"
-source "globals.tcl"
-if {[dict get $args writeconfig]} {
-    writeConfigFile 1
-} else {
-    after idle {openConfigFile}
-}
+copySourceFiles [file dirname [file normalize $argv0]] \
+    $ConfigDir terminal.tcl proc.tcl globals.tcl videocodecs.json audiocodecs.json
+
+source [file join $ConfigDir "terminal.tcl"]
+source [file join $ConfigDir "proc.tcl"]
+source [file join $ConfigDir "globals.tcl"]
 
 settemp parent .frMain
 
@@ -138,14 +194,6 @@ grid $parent.lbFps $parent.lbVCodec $parent.lbACodec x $parent.lbDuration
 grid $parent.sbFps $parent.cbVCodec $parent.cbACodec x $parent.sbDuration
 grid configure $parent.sbDuration -sticky ew
 
-# Show audio sources if audio codec is not null
-after idle [subst {
-    if {\$ACODEC ne "null"} {
-        grid $parent.lbASrc -row 0 -column 3
-        grid $parent.cbASrc -row 1 -column 3
-    }
-}]
-
 # Recording modes
 
 set parent .frMain.nb.frOptions.frRecMode
@@ -190,24 +238,22 @@ ttk::button $parent.btSetRegion -text "Set Region" -command {
     try {
         set tempfile [file join $TempFileDir "image[random string 5].png"]
         eval exec import $tempfile
+        jdebug::print debug "Created $tempfile from command: import $tempfile"
 
         set imginfo [split [eval exec identify $tempfile]]
+        jdebug::print trace "Image info: $imginfo\nTaken from command: identify $tempfile"
 
         set size [split [lindex $imginfo 2] x]
-
         set offset [lindex $imginfo 3]
         set offset [string range $offset "[string first + $offset]+1" end]
         set offset [split $offset +]
-
-        ::jdebug::eval {
-            puts "Size: $size\nOffset: $offset"
-        }
+        jdebug::print trace "Size: $size\nOffset: $offset"
 
         lassign $size WIDTH HEIGHT
         lassign $offset X_OFFSET Y_OFFSET
     } finally {
         file delete $tempfile
-        ::jdebug::print "Deleted $tempfile"
+        jdebug::print debug "Deleted $tempfile"
         unset -nocomplain tempfile imginfo offset size
     }
 
@@ -289,7 +335,13 @@ ttk::label .frMain.nb.frScreen.lbPreview -image PreviewImage
 pack .frMain.nb.frScreen.lbGeometry .frMain.nb.frScreen.lbPreview -fill x
 pack configure .frMain.nb.frScreen.lbPreview -fill both
 
-after idle {
+after idle [subst {
+    openConfigFile
+    jdebug::print debug "\\\$ACODEC = \$ACODEC"
+    if {\$ACODEC ne "null"} {
+        grid .frMain.nb.frOptions.frParams.lbASrc -row 0 -column 3
+        grid .frMain.nb.frOptions.frParams.cbASrc -row 1 -column 3
+    }
     showStatusMessage "Interface working normally"
     loadPreviewImage
-}
+}]

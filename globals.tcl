@@ -1,6 +1,5 @@
 const TempFileDir [getTempDir]
 const PreviewImageSize [list 1000 650]
-const ConfigDir [file nativename "$env(HOME)/.config/screen_recorder"]
 const FontZeroWidth [getFontWidth TkDefaultFont]
 const ConfigFields {
     {CurrentDir    [pwd]}
